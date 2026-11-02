@@ -111,7 +111,25 @@
         </div>
     </div>
 
-    <script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase 雲端資料庫初始化 ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+        
+        let app, auth, db, docRef;
+        try {
+            const firebaseConfig = JSON.parse(firebaseConfigStr);
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch (e) {
+            console.error("Firebase initialization error:", e);
+        }
+
         // --- 核心資料狀態 ---
         const state = {
             currentView: 'member', // 預設改為會員視角
@@ -170,10 +188,12 @@
 
         // --- 初始化系統 ---
         function init() {
-            // 預設填入今天日期
+            // 預設填入今天日期 (如果雲端還沒資料的話)
             const today = new Date().toISOString().split('T')[0];
-            state.meetingDate = today;
-            if (meetingDateInput) meetingDateInput.value = today;
+            if (!state.meetingDate) {
+                state.meetingDate = today;
+            }
+            if (meetingDateInput) meetingDateInput.value = state.meetingDate;
             updateMeetingDateDisplay();
 
             // 綁定事件監聽
@@ -194,7 +214,8 @@
                 meetingDateInput.addEventListener('change', (e) => {
                     state.meetingDate = e.target.value;
                     updateMeetingDateDisplay();
-                    showToast('會議日期已更新！');
+                    saveStateToCloud();
+                    showToast('會議日期已更新並儲存！');
                 });
             }
 
@@ -213,6 +234,61 @@
 
             // 預設啟動會員視角
             switchView('member');
+        }
+
+        // --- 雲端資料即時同步 ---
+        async function setupFirebase() {
+            if (!auth || !db) return;
+            try {
+                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (token) {
+                    await signInWithCustomToken(auth, token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                // 確保登入後才存取共用資料表
+                docRef = doc(db, 'artifacts', appId, 'public', 'data', 'club_state', 'main');
+                
+                // 監聽雲端資料變化 (其他人的修改會立刻反映在你的畫面上)
+                onSnapshot(docRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        state.assignments = data.assignments || {};
+                        if (data.meetingDate) {
+                            state.meetingDate = data.meetingDate;
+                            if (meetingDateInput) meetingDateInput.value = state.meetingDate;
+                            updateMeetingDateDisplay();
+                        }
+                        
+                        // 收到新資料時自動刷新畫面
+                        if (state.currentView === 'admin') {
+                            renderAdminTable();
+                            updateDashboard();
+                        } else {
+                            renderMemberTasks();
+                        }
+                    }
+                }, (error) => {
+                    console.error("Firestore 即時同步錯誤:", error);
+                });
+            } catch (error) {
+                console.error("Firebase 驗證失敗:", error);
+            }
+        }
+
+        // 儲存資料到雲端
+        async function saveStateToCloud() {
+            if (!docRef) return;
+            try {
+                await setDoc(docRef, {
+                    assignments: state.assignments,
+                    meetingDate: state.meetingDate
+                }, { merge: true });
+            } catch (error) {
+                console.error("儲存至雲端失敗:", error);
+                showToast("儲存失敗，請檢查網路連線", "warning");
+            }
         }
 
         // --- 密碼驗證處理 ---
@@ -338,6 +414,7 @@
             }
             renderAdminTable();
             updateDashboard();
+            saveStateToCloud(); // 觸發雲端儲存
         };
 
         window.clearTask = function(role) {
@@ -345,6 +422,7 @@
             showToast(`已清除 ${role} 的指派`);
             renderAdminTable();
             updateDashboard();
+            saveStateToCloud(); // 觸發雲端儲存
         };
 
         // --- 更新儀表板進度條 ---
@@ -465,6 +543,7 @@
                 state.assignments[role].status = 'confirmed';
                 showToast(`謝謝您，${memberName}！您已成功確認擔任 ${role}。`);
                 renderMemberTasks();
+                saveStateToCloud(); // 觸發雲端儲存
             }
         };
         
@@ -473,6 +552,7 @@
                 state.assignments[role].status = 'declined';
                 showToast(`您已婉拒 ${role} 職務，系統將提醒 EVP 重新指派。`, 'warning');
                 renderMemberTasks();
+                saveStateToCloud(); // 觸發雲端儲存
             }
         };
         
@@ -481,6 +561,7 @@
                 state.assignments[role].status = 'pending';
                 showToast(`已取消確認狀態。`, 'warning');
                 renderMemberTasks();
+                saveStateToCloud(); // 觸發雲端儲存
             }
         };
 
@@ -512,7 +593,10 @@
         }
 
         // --- 綁定啟動程序 ---
-        window.addEventListener('DOMContentLoaded', init);
+        window.addEventListener('DOMContentLoaded', () => {
+            init();
+            setupFirebase(); // 啟動雲端同步
+        });
     </script>
 </body>
 </html>
