@@ -107,7 +107,7 @@
         <div class="bg-white p-6 rounded-xl shadow-xl w-11/12 max-w-sm transform transition-all">
             <h3 class="text-xl font-bold text-gray-800 mb-2">EVP 權限驗證</h3>
             <p class="text-sm text-gray-500 mb-4">請輸入密碼以進入 EVP 視角進行任務分派。</p>
-            <input type="password" id="evp-password" class="w-full border border-gray-300 p-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="請輸入密碼 (預設: 8888)">
+            <input type="password" id="evp-password" class="w-full border border-gray-300 p-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="請輸入密碼 (預設: 1234)">
             <div class="flex justify-end gap-3">
                 <button id="btn-cancel-pwd" class="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition">取消</button>
                 <button id="btn-submit-pwd" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 rounded-lg shadow-sm transition">確認登入</button>
@@ -242,11 +242,16 @@
             updateCloudStatus('connecting', '連線中...');
             try {
                 if (typeof __firebase_config === 'undefined' || !__firebase_config) {
-                    throw new Error("找不到雲端資料庫設定檔");
+                    throw new Error("找不到雲端資料庫設定檔 (未配置)");
+                }
+
+                const config = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
+                
+                if (Object.keys(config).length === 0) {
+                    throw new Error("雲端資料庫設定檔為空");
                 }
 
                 // 初始化 Firebase 核心
-                const config = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
                 app = initializeApp(config);
                 auth = getAuth(app);
                 db = getFirestore(app);
@@ -285,10 +290,14 @@
                 }, (error) => {
                     console.error("Firestore 即時同步錯誤:", error);
                     updateCloudStatus('error', '雲端同步失敗');
+                    showToast('雲端同步發生錯誤', 'warning');
                 });
             } catch (error) {
-                console.error("Firebase 驗證失敗:", error);
-                updateCloudStatus('error', '雲端連線失敗');
+                console.error("Firebase 連線失敗:", error);
+                updateCloudStatus('error', '未連線 (單機模式)');
+                showToast(`無法連線至雲端: ${error.message}。目前切換為單機記憶模式。`, 'warning');
+                // 即使失敗也確保畫面更新
+                refreshCurrentView();
             }
         }
 
