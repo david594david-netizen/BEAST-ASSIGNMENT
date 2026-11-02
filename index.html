@@ -107,7 +107,7 @@
         <div class="bg-white p-6 rounded-xl shadow-xl w-11/12 max-w-sm transform transition-all">
             <h3 class="text-xl font-bold text-gray-800 mb-2">EVP 權限驗證</h3>
             <p class="text-sm text-gray-500 mb-4">請輸入密碼以進入 EVP 視角進行任務分派。</p>
-            <input type="password" id="evp-password" class="w-full border border-gray-300 p-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="請輸入密碼 (預設: 1234)">
+            <input type="password" id="evp-password" class="w-full border border-gray-300 p-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="請輸入密碼 (預設: 8888)">
             <div class="flex justify-end gap-3">
                 <button id="btn-cancel-pwd" class="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition">取消</button>
                 <button id="btn-submit-pwd" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 rounded-lg shadow-sm transition">確認登入</button>
@@ -185,9 +185,6 @@
         const cloudDot = document.getElementById('cloud-dot');
         const cloudText = document.getElementById('cloud-text');
         
-        // 標測是否使用本機備用儲存
-        let useLocalFallback = false;
-
         // --- 初始化系統 ---
         function init() {
             // 預設填入今天日期 (如果雲端還沒資料的話)
@@ -240,14 +237,12 @@
             switchView(state.currentView);
         }
 
-        // --- 雲端資料即時同步與備用儲存機制 ---
+        // --- 雲端資料即時同步 ---
         async function setupFirebase() {
-            updateCloudStatus('connecting', '連線測試中...');
+            updateCloudStatus('connecting', '連線中...');
             try {
                 if (typeof __firebase_config === 'undefined' || !__firebase_config) {
-                    console.warn("找不到 Firebase 設定，啟用本機備用儲存模式。");
-                    enableLocalFallback();
-                    return;
+                    throw new Error("找不到雲端資料庫設定檔");
                 }
 
                 // 初始化 Firebase 核心
@@ -289,54 +284,20 @@
                     }
                 }, (error) => {
                     console.error("Firestore 即時同步錯誤:", error);
-                    updateCloudStatus('error', '即時同步失敗，啟用本機備用');
-                    enableLocalFallback();
+                    updateCloudStatus('error', '雲端同步失敗');
                 });
             } catch (error) {
                 console.error("Firebase 驗證失敗:", error);
-                updateCloudStatus('error', '連線失敗，啟用本機備用');
-                enableLocalFallback();
+                updateCloudStatus('error', '雲端連線失敗');
             }
         }
 
-        // 啟用本機備用儲存 (Local Storage)
-        function enableLocalFallback() {
-            useLocalFallback = true;
-            updateCloudStatus('warning', '本機儲存模式 (非雲端)');
-            
-            // 嘗試讀取本機舊資料
-            const savedData = localStorage.getItem('beast_toastmasters_state');
-            if (savedData) {
-                try {
-                    const data = JSON.parse(savedData);
-                    if (data.assignments) state.assignments = data.assignments;
-                    if (data.meetingDate) {
-                        state.meetingDate = data.meetingDate;
-                        if (meetingDateInput) meetingDateInput.value = state.meetingDate;
-                        updateMeetingDateDisplay();
-                    }
-                    refreshCurrentView();
-                } catch (e) {
-                    console.error("解析本機資料失敗:", e);
-                }
-            }
-        }
-
-        // 統一的儲存資料入口
+        // 統一的儲存資料入口 (強制存入雲端)
         async function saveStateData() {
-            if (useLocalFallback) {
-                // 備用：儲存至瀏覽器本機
-                localStorage.setItem('beast_toastmasters_state', JSON.stringify({
-                    assignments: state.assignments,
-                    meetingDate: state.meetingDate,
-                    lastUpdated: new Date().toISOString()
-                }));
-                updateCloudStatus('warning', '已儲存至本機');
+            if (!docRef || !auth || !auth.currentUser) {
+                console.warn("尚未連線到雲端，無法儲存。");
                 return;
             }
-
-            // 正常：儲存至雲端
-            if (!docRef || !auth || !auth.currentUser) return;
             
             updateCloudStatus('saving', '儲存中...');
             try {
@@ -348,9 +309,8 @@
                 updateCloudStatus('connected', '已同步至雲端');
             } catch (error) {
                 console.error("儲存至雲端失敗:", error);
-                updateCloudStatus('error', '儲存失敗，轉存本機');
-                enableLocalFallback();
-                saveStateData(); // 重新觸發本機儲存
+                updateCloudStatus('error', '儲存至雲端失敗');
+                showToast('儲存失敗，請檢查網路連線', 'warning');
             }
         }
 
