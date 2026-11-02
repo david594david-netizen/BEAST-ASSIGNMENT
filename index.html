@@ -107,7 +107,7 @@
         <div class="bg-white p-6 rounded-xl shadow-xl w-11/12 max-w-sm transform transition-all">
             <h3 class="text-xl font-bold text-gray-800 mb-2">EVP 權限驗證</h3>
             <p class="text-sm text-gray-500 mb-4">請輸入密碼以進入 EVP 視角進行任務分派。</p>
-            <input type="password" id="evp-password" class="w-full border border-gray-300 p-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="請輸入密碼 (預設: 8888)">
+            <input type="password" id="evp-password" class="w-full border border-gray-300 p-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="請輸入密碼 (預設: 1234)">
             <div class="flex justify-end gap-3">
                 <button id="btn-cancel-pwd" class="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition">取消</button>
                 <button id="btn-submit-pwd" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 rounded-lg shadow-sm transition">確認登入</button>
@@ -220,6 +220,26 @@
                     showToast('會議日期已更新並儲存！');
                 });
             }
+
+            // 綁定密碼驗證相關事件
+            if (btnCancelPwd) {
+                btnCancelPwd.addEventListener('click', () => {
+                    passwordModal.classList.add('hidden');
+                });
+            }
+            if (btnSubmitPwd) {
+                btnSubmitPwd.addEventListener('click', handlePasswordSubmit);
+            }
+            if (evpPasswordInput) {
+                evpPasswordInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') handlePasswordSubmit();
+                });
+            }
+
+            // 初始化時強制顯示初始視角 (避免畫面空白)
+            switchView(state.currentView);
+        }
+
         // --- 雲端資料即時同步與備用儲存機制 ---
         async function setupFirebase() {
             updateCloudStatus('connecting', '連線測試中...');
@@ -491,14 +511,6 @@
             renderAdminTable();
             updateDashboard();
             saveStateData(); // 觸發儲存
-        };
-
-        window.clearTask = function(role) {
-            delete state.assignments[role];
-            showToast(`已清除 ${role} 的指派`);
-            renderAdminTable();
-            updateDashboard();
-            saveStateToCloud(); // 觸發雲端儲存
         };
 
         // --- 更新儀表板進度條 ---
