@@ -54,9 +54,9 @@
                     <h2 class="text-xl font-bold text-gray-800">任務分配表 (Assignment)</h2>
                     <div class="text-xs text-gray-500 italic mt-1">教育副會長 (EVP) 專屬視角</div>
                 </div>
-                <div class="flex items-center space-x-3 bg-white px-4 py-2 rounded-lg border border-gray-200 shadow-sm">
-                    <label for="meeting-date" class="text-sm font-medium text-gray-700 whitespace-nowrap">Meeting 日期:</label>
-                    <input type="date" id="meeting-date" class="p-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-gray-700">
+                <div class="flex items-center space-x-3 bg-yellow-100 px-4 py-2 rounded-lg border-2 border-yellow-400 shadow-sm">
+                    <label for="meeting-date" class="text-sm font-bold text-yellow-800 whitespace-nowrap">📆 Meeting 日期:</label>
+                    <input type="date" id="meeting-date" class="p-1.5 text-sm font-bold border border-yellow-300 rounded focus:ring-2 focus:ring-yellow-500 outline-none text-gray-800 bg-white">
                 </div>
             </div>
             <div class="overflow-x-auto">
@@ -81,8 +81,8 @@
             <div id="member-tasks-container" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden max-w-3xl mx-auto">
                 <div class="p-6 border-b border-gray-100 bg-blue-50 flex justify-between items-center">
                     <h2 class="text-xl font-bold text-blue-900">任務確認看板</h2>
-                    <div class="text-sm font-medium text-blue-700 bg-blue-100 px-3 py-1 rounded-full">
-                        Meeting: <span id="display-meeting-date">尚未設定</span>
+                    <div class="text-sm font-bold text-yellow-900 bg-yellow-200 border border-yellow-400 shadow-sm px-4 py-1.5 rounded-full flex items-center gap-2">
+                        📆 Meeting: <span id="display-meeting-date">尚未設定</span>
                     </div>
                 </div>
                 <div class="p-4 bg-yellow-50 border-b border-yellow-100 text-sm text-yellow-800 flex items-center gap-2">
@@ -98,10 +98,24 @@
         </div>
     </main>
 
+    <!-- EVP 密碼驗證 Modal -->
+    <div id="password-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 z-50 flex justify-center items-center backdrop-blur-sm">
+        <div class="bg-white p-6 rounded-xl shadow-xl w-11/12 max-w-sm transform transition-all">
+            <h3 class="text-xl font-bold text-gray-800 mb-2">EVP 權限驗證</h3>
+            <p class="text-sm text-gray-500 mb-4">請輸入密碼以進入 EVP 視角進行任務分派。</p>
+            <input type="password" id="evp-password" class="w-full border border-gray-300 p-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="請輸入密碼 (預設: 8888)">
+            <div class="flex justify-end gap-3">
+                <button id="btn-cancel-pwd" class="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition">取消</button>
+                <button id="btn-submit-pwd" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 rounded-lg shadow-sm transition">確認登入</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // --- 核心資料狀態 ---
         const state = {
-            currentView: 'admin', 
+            currentView: 'member', // 預設改為會員視角
+            isAdminAuthenticated: false, // 記錄是否已驗證過密碼
             meetingDate: '',
             roles: [
                 "Toastmaster", 
@@ -147,6 +161,12 @@
         const progressText = document.getElementById('progress-text');
         const meetingDateInput = document.getElementById('meeting-date');
         const displayMeetingDate = document.getElementById('display-meeting-date');
+        
+        // 密碼驗證相關 DOM
+        const passwordModal = document.getElementById('password-modal');
+        const evpPasswordInput = document.getElementById('evp-password');
+        const btnCancelPwd = document.getElementById('btn-cancel-pwd');
+        const btnSubmitPwd = document.getElementById('btn-submit-pwd');
 
         // --- 初始化系統 ---
         function init() {
@@ -157,7 +177,18 @@
             updateMeetingDateDisplay();
 
             // 綁定事件監聽
-            if (btnAdmin) btnAdmin.addEventListener('click', () => switchView('admin'));
+            if (btnAdmin) {
+                btnAdmin.addEventListener('click', () => {
+                    if (state.isAdminAuthenticated) {
+                        switchView('admin'); // 已驗證過，直接切換
+                    } else {
+                        // 顯示密碼輸入框
+                        passwordModal.classList.remove('hidden');
+                        evpPasswordInput.value = '';
+                        evpPasswordInput.focus();
+                    }
+                });
+            }
             if (btnMember) btnMember.addEventListener('click', () => switchView('member'));
             if (meetingDateInput) {
                 meetingDateInput.addEventListener('change', (e) => {
@@ -167,8 +198,36 @@
                 });
             }
 
-            // 啟動 EVP 視角
-            switchView('admin');
+            // 密碼對話框事件
+            if (btnCancelPwd) {
+                btnCancelPwd.addEventListener('click', () => passwordModal.classList.add('hidden'));
+            }
+            if (btnSubmitPwd) {
+                btnSubmitPwd.addEventListener('click', handlePasswordSubmit);
+            }
+            if (evpPasswordInput) {
+                evpPasswordInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') handlePasswordSubmit();
+                });
+            }
+
+            // 預設啟動會員視角
+            switchView('member');
+        }
+
+        // --- 密碼驗證處理 ---
+        function handlePasswordSubmit() {
+            const pwd = evpPasswordInput.value;
+            if (pwd === '1234') {
+                state.isAdminAuthenticated = true;
+                passwordModal.classList.add('hidden');
+                switchView('admin');
+                showToast('成功登入 EVP 視角！');
+            } else {
+                showToast('密碼錯誤，請重新輸入。', 'warning');
+                evpPasswordInput.value = '';
+                evpPasswordInput.focus();
+            }
         }
 
         // --- 視圖切換邏輯 ---
