@@ -67,10 +67,10 @@
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">會議角色 (Role)</th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">指派會員 (Member)</th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">確認狀態 (Status)</th>
-                            <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[120px]">會議角色 (Role)</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[160px]">指派會員 (Member)</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[140px]">確認狀態 (Status)</th>
+                            <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
                         </tr>
                     </thead>
                     <tbody id="admin-table-body" class="bg-white divide-y divide-gray-200">
@@ -290,21 +290,41 @@
                 }, (error) => {
                     console.error("Firestore 即時同步錯誤:", error);
                     updateCloudStatus('error', '雲端同步失敗');
-                    showToast('雲端同步發生錯誤', 'warning');
+                    // showToast('雲端同步發生錯誤', 'warning'); // 隱藏煩人的警告
                 });
             } catch (error) {
-                console.error("Firebase 連線失敗:", error);
-                updateCloudStatus('error', '未連線 (單機模式)');
-                showToast(`無法連線至雲端: ${error.message}。目前切換為單機記憶模式。`, 'warning');
-                // 即使失敗也確保畫面更新
+                console.warn("Firebase 暫未連線:", error.message);
+                updateCloudStatus('warning', '單機模式');
+                
+                // 【單機備份還原】如果無法連線雲端，嘗試從瀏覽器本機快取還原資料
+                const localData = localStorage.getItem('toastmaster_local_backup');
+                if (localData) {
+                    try {
+                        const parsed = JSON.parse(localData);
+                        if (parsed.assignments) state.assignments = parsed.assignments;
+                        if (parsed.meetingDate) {
+                            state.meetingDate = parsed.meetingDate;
+                            if (meetingDateInput) meetingDateInput.value = state.meetingDate;
+                            updateMeetingDateDisplay();
+                        }
+                    } catch (e) {}
+                }
+                // 確保畫面正常渲染
                 refreshCurrentView();
             }
         }
 
-        // 統一的儲存資料入口 (強制存入雲端)
+        // 統一的儲存資料入口 (強制存入雲端 + 單機備份)
         async function saveStateData() {
+            // 永遠同步備份一份在單機 (瀏覽器) 中，防止重新整理後資料消失
+            localStorage.setItem('toastmaster_local_backup', JSON.stringify({
+                assignments: state.assignments,
+                meetingDate: state.meetingDate
+            }));
+
             if (!docRef || !auth || !auth.currentUser) {
-                console.warn("尚未連線到雲端，無法儲存。");
+                // 如果尚未連線雲端，就只更新燈號，不報錯
+                updateCloudStatus('warning', '已存本機');
                 return;
             }
             
@@ -318,8 +338,7 @@
                 updateCloudStatus('connected', '已同步至雲端');
             } catch (error) {
                 console.error("儲存至雲端失敗:", error);
-                updateCloudStatus('error', '儲存至雲端失敗');
-                showToast('儲存失敗，請檢查網路連線', 'warning');
+                updateCloudStatus('warning', '僅存本機');
             }
         }
 
@@ -435,22 +454,22 @@
                 // 建立下拉選單
                 let selectOptions = `<option value="">-- 選擇會員 --</option>`;
                 state.members.forEach(member => {
-                    const selected = assignment.member === member ? 'selected' : '';
+                    const selected = assignment.member === member ? 'selected="selected"' : '';
                     selectOptions += `<option value="${member}" ${selected}>${member}</option>`;
                 });
 
                 tr.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">${role}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <select class="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md bg-white border shadow-sm" 
+                    <td class="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900">${role}</td>
+                    <td class="px-4 py-4 text-sm text-gray-900">
+                        <select class="block w-full pl-2 pr-8 py-2.5 text-base font-bold text-gray-900 border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md bg-white border shadow-sm" 
                                 onchange="assignTask('${role}', this.value)">
                             ${selectOptions}
                         </select>
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                         ${getStatusBadge(assignment.status)}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                    <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
                         ${assignment.status !== 'unassigned' ? 
                             `<button onclick="clearTask('${role}')" class="text-red-600 hover:text-red-900 text-xs font-medium bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded transition">清除</button>` : ''
                         }
