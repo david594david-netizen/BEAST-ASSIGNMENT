@@ -187,6 +187,9 @@
         
         // --- 初始化系統 ---
         function init() {
+            // 【重要修復】：一進入系統，強制清除所有瀏覽器舊的單機快取，確保不會拿舊資料覆蓋雲端！
+            localStorage.removeItem('toastmaster_local_backup');
+
             // 預設填入今天日期 (如果雲端還沒資料的話)
             const today = new Date().toISOString().split('T')[0];
             if (!state.meetingDate) {
@@ -276,6 +279,8 @@
                     updateCloudStatus('connected', '已連線並同步');
                     if (docSnap.exists()) {
                         const data = docSnap.data();
+                        
+                        // 確保只有當雲端有資料時才覆蓋本地狀態
                         if (data.assignments) state.assignments = data.assignments;
                         if (data.meetingDate) {
                             state.meetingDate = data.meetingDate;
@@ -284,47 +289,27 @@
                         }
                         refreshCurrentView();
                     } else {
-                        // 若雲端無資料，將當前畫面預設狀態存上去
+                        // 若雲端無資料 (第一次使用)，將當前畫面預設狀態存上去
                         saveStateData();
                     }
                 }, (error) => {
                     console.error("Firestore 即時同步錯誤:", error);
                     updateCloudStatus('error', '雲端同步失敗');
-                    // showToast('雲端同步發生錯誤', 'warning'); // 隱藏煩人的警告
                 });
             } catch (error) {
                 console.warn("Firebase 暫未連線:", error.message);
-                updateCloudStatus('warning', '單機模式');
+                updateCloudStatus('error', '未連線 (無法同步)');
                 
-                // 【單機備份還原】如果無法連線雲端，嘗試從瀏覽器本機快取還原資料
-                const localData = localStorage.getItem('toastmaster_local_backup');
-                if (localData) {
-                    try {
-                        const parsed = JSON.parse(localData);
-                        if (parsed.assignments) state.assignments = parsed.assignments;
-                        if (parsed.meetingDate) {
-                            state.meetingDate = parsed.meetingDate;
-                            if (meetingDateInput) meetingDateInput.value = state.meetingDate;
-                            updateMeetingDateDisplay();
-                        }
-                    } catch (e) {}
-                }
-                // 確保畫面正常渲染
+                // 完全移除本機快取還原邏輯，避免不同步
                 refreshCurrentView();
             }
         }
 
-        // 統一的儲存資料入口 (強制存入雲端 + 單機備份)
+        // 統一的儲存資料入口 (強制僅存入雲端，拔除單機備份)
         async function saveStateData() {
-            // 永遠同步備份一份在單機 (瀏覽器) 中，防止重新整理後資料消失
-            localStorage.setItem('toastmaster_local_backup', JSON.stringify({
-                assignments: state.assignments,
-                meetingDate: state.meetingDate
-            }));
-
             if (!docRef || !auth || !auth.currentUser) {
-                // 如果尚未連線雲端，就只更新燈號，不報錯
-                updateCloudStatus('warning', '已存本機');
+                updateCloudStatus('error', '尚未連線，無法儲存');
+                showToast('尚未連線雲端，資料暫時無法同步！', 'warning');
                 return;
             }
             
@@ -338,7 +323,8 @@
                 updateCloudStatus('connected', '已同步至雲端');
             } catch (error) {
                 console.error("儲存至雲端失敗:", error);
-                updateCloudStatus('warning', '僅存本機');
+                updateCloudStatus('error', '雲端儲存失敗');
+                showToast('雲端同步失敗，請確認網路狀態！', 'warning');
             }
         }
 
