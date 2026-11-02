@@ -22,9 +22,13 @@
             <div>
                 <h1 class="text-2xl font-bold tracking-wider">BEAST TOASTMASTER CLUB</h1>
                 <p class="text-blue-200 text-sm mt-1">會議任務分配與確認系統</p>
-                <div class="text-blue-300 text-xs mt-2 flex gap-4 font-medium">
+                <div class="text-blue-300 text-xs mt-2 flex gap-4 font-medium items-center">
                     <span>President: Greg Tsai</span>
                     <span>EVP: Kai Kao</span>
+                    <div id="cloud-indicator" class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-800/50 text-blue-100 text-xs ml-2 border border-blue-700/50">
+                        <span id="cloud-dot" class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+                        <span id="cloud-text">等待連線...</span>
+                    </div>
                 </div>
             </div>
             <div class="flex space-x-2">
@@ -103,7 +107,7 @@
         <div class="bg-white p-6 rounded-xl shadow-xl w-11/12 max-w-sm transform transition-all">
             <h3 class="text-xl font-bold text-gray-800 mb-2">EVP 權限驗證</h3>
             <p class="text-sm text-gray-500 mb-4">請輸入密碼以進入 EVP 視角進行任務分派。</p>
-            <input type="password" id="evp-password" class="w-full border border-gray-300 p-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="請輸入密碼 (預設: 8888)">
+            <input type="password" id="evp-password" class="w-full border border-gray-300 p-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="請輸入密碼 (預設: 1234)">
             <div class="flex justify-end gap-3">
                 <button id="btn-cancel-pwd" class="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition">取消</button>
                 <button id="btn-submit-pwd" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 rounded-lg shadow-sm transition">確認登入</button>
@@ -120,20 +124,6 @@
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         
         let app, auth, db, docRef;
-        try {
-            if (typeof __firebase_config !== 'undefined') {
-                const firebaseConfig = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
-                if (Object.keys(firebaseConfig).length > 0) {
-                    app = initializeApp(firebaseConfig);
-                    auth = getAuth(app);
-                    db = getFirestore(app);
-                }
-            } else {
-                console.warn("找不到 Firebase 設定，將無法連線雲端");
-            }
-        } catch (e) {
-            console.error("Firebase initialization error:", e);
-        }
 
         // --- 核心資料狀態 ---
         const state = {
@@ -190,6 +180,10 @@
         const evpPasswordInput = document.getElementById('evp-password');
         const btnCancelPwd = document.getElementById('btn-cancel-pwd');
         const btnSubmitPwd = document.getElementById('btn-submit-pwd');
+        
+        // 雲端連線狀態 DOM
+        const cloudDot = document.getElementById('cloud-dot');
+        const cloudText = document.getElementById('cloud-text');
 
         // --- 初始化系統 ---
         function init() {
@@ -243,32 +237,41 @@
 
         // --- 雲端資料即時同步 ---
         async function setupFirebase() {
-            if (!auth || !db) {
-                console.warn("無法啟動 Firebase 同步，請確認環境設定。");
-                return;
-            }
+            updateCloudStatus('connecting', '資料庫連線中...');
             try {
-                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                let userCred;
-                if (token) {
-                    userCred = await signInWithCustomToken(auth, token);
-                } else {
-                    userCred = await signInAnonymously(auth);
-                }
-                
-                if (!userCred || !userCred.user) {
-                    console.error("無法取得使用者憑證");
+                if (typeof __firebase_config === 'undefined') {
+                    console.warn("找不到 Firebase 設定，無法連線。");
+                    updateCloudStatus('error', '環境未配置');
                     return;
                 }
 
-                // 確保登入後才存取共用資料表
+                // 初始化 Firebase 核心
+                const config = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
+                app = initializeApp(config);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // 進行身分驗證
+                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (token) {
+                    await signInWithCustomToken(auth, token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                if (!auth.currentUser) {
+                    throw new Error("無法取得使用者憑證");
+                }
+
+                // 確保登入後才存取共用資料表 (嚴格遵循路徑規則)
                 docRef = doc(db, 'artifacts', appId, 'public', 'data', 'club_state', 'main');
                 
-                // 監聽雲端資料變化 (其他人的修改會立刻反映在你的畫面上)
+                // 監聽雲端資料變化 (其他人的修改會立刻反映在畫面上)
                 onSnapshot(docRef, (docSnap) => {
+                    updateCloudStatus('connected', '已連線並同步');
                     if (docSnap.exists()) {
                         const data = docSnap.data();
-                        state.assignments = data.assignments || {};
+                        if (data.assignments) state.assignments = data.assignments;
                         if (data.meetingDate) {
                             state.meetingDate = data.meetingDate;
                             if (meetingDateInput) meetingDateInput.value = state.meetingDate;
@@ -288,10 +291,11 @@
                     }
                 }, (error) => {
                     console.error("Firestore 即時同步錯誤:", error);
-                    showToast("無法同步最新狀態", "warning");
+                    updateCloudStatus('error', '即時同步失敗');
                 });
             } catch (error) {
                 console.error("Firebase 驗證失敗:", error);
+                updateCloudStatus('error', '連線失敗');
             }
         }
 
@@ -301,15 +305,33 @@
                 console.warn("尚未連接雲端，資料暫不保存");
                 return;
             }
+            updateCloudStatus('saving', '儲存中...');
             try {
                 await setDoc(docRef, {
                     assignments: state.assignments,
-                    meetingDate: state.meetingDate
+                    meetingDate: state.meetingDate,
+                    lastUpdated: new Date().toISOString()
                 }, { merge: true });
+                updateCloudStatus('connected', '已儲存');
             } catch (error) {
                 console.error("儲存至雲端失敗:", error);
-                showToast("儲存失敗，請檢查網路連線", "warning");
+                updateCloudStatus('error', '儲存失敗');
+                showToast("雲端儲存失敗，請檢查網路", "warning");
             }
+        }
+
+        // 更新狀態燈號指示
+        function updateCloudStatus(status, text) {
+            if (!cloudDot || !cloudText) return;
+            cloudText.textContent = text;
+            
+            // 根據狀態改變燈號顏色與動畫
+            cloudDot.className = 'w-1.5 h-1.5 rounded-full ' + (
+                status === 'connected' ? 'bg-green-400' :
+                status === 'saving' ? 'bg-yellow-400 animate-pulse' :
+                status === 'connecting' ? 'bg-blue-400 animate-pulse' : 
+                'bg-red-500' // error
+            );
         }
 
         // --- 密碼驗證處理 ---
