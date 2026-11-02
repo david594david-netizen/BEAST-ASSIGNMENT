@@ -120,38 +120,21 @@
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- Firebase 雲端資料庫初始化 ---
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        
         let app, auth, db, docRef;
-        let isFirebaseConnected = false; // 新增連線狀態旗標
+        let isFirebaseConnected = false; 
 
         // --- 核心資料狀態 ---
         const state = {
-            currentView: 'member', // 預設改為會員視角
-            isAdminAuthenticated: false, // 記錄是否已驗證過密碼
+            currentView: 'member', 
+            isAdminAuthenticated: false, 
             meetingDate: '',
             roles: [
-                "Toastmaster", 
-                "Captain", 
-                "Warm-up", 
-                "Timer", 
-                "Ah Counter", 
-                "Grammarian", 
-                "Word of the Day", 
-                "Joker", 
-                "Photographer", 
-                "E-Voting", 
-                "Speaker 1", 
-                "Speaker 2", 
-                "Speaker 3", 
-                "Table Topic", 
-                "General Evaluator", 
-                "Evaluator 1", 
-                "Evaluator 2", 
-                "Evaluator 3"
+                "Toastmaster", "Captain", "Warm-up", "Timer", 
+                "Ah Counter", "Grammarian", "Word of the Day", "Joker", 
+                "Photographer", "E-Voting", "Speaker 1", "Speaker 2", 
+                "Speaker 3", "Table Topic", "General Evaluator", 
+                "Evaluator 1", "Evaluator 2", "Evaluator 3"
             ],
-            // 更新的會員名單 (依照英文字母 A-Z 排序)
             members: [
                 "Alan Hsu", "Angeles Wu", "Bianca Wang", "Blanche Hsiao", 
                 "Carol Hung", "David Lin", "Greg Tsai", "Helen Kuo", 
@@ -160,7 +143,7 @@
                 "Ping Hsiao", "Ray Chen", "Roger Hsu", "Sara Hung", 
                 "Sheila Chou", "Simon Lin", "Sunny Lin", "TS Hsieh"
             ],
-            assignments: {} // { role: { member: 'Name', status: 'pending'|'confirmed'|'declined' } }
+            assignments: {} 
         };
 
         // --- DOM 元素綁定 ---
@@ -176,36 +159,30 @@
         const meetingDateInput = document.getElementById('meeting-date');
         const displayMeetingDate = document.getElementById('display-meeting-date');
         
-        // 密碼驗證相關 DOM
         const passwordModal = document.getElementById('password-modal');
         const evpPasswordInput = document.getElementById('evp-password');
         const btnCancelPwd = document.getElementById('btn-cancel-pwd');
         const btnSubmitPwd = document.getElementById('btn-submit-pwd');
         
-        // 雲端連線狀態 DOM
         const cloudDot = document.getElementById('cloud-dot');
         const cloudText = document.getElementById('cloud-text');
         
         // --- 初始化系統 ---
         function init() {
-            // 一進入系統，強制清除所有瀏覽器舊的單機快取，避免污染
+            // 強制清除任何舊有的本機干擾
             localStorage.removeItem('toastmaster_local_backup');
 
-            // 預設填入今天日期 (如果沒有資料的話)
-            const today = new Date().toISOString().split('T')[0];
             if (!state.meetingDate) {
-                state.meetingDate = today;
+                state.meetingDate = new Date().toISOString().split('T')[0];
             }
             if (meetingDateInput) meetingDateInput.value = state.meetingDate;
             updateMeetingDateDisplay();
 
-            // 綁定事件監聽
             if (btnAdmin) {
                 btnAdmin.addEventListener('click', () => {
                     if (state.isAdminAuthenticated) {
-                        switchView('admin'); // 已驗證過，直接切換
+                        switchView('admin');
                     } else {
-                        // 顯示密碼輸入框
                         passwordModal.classList.remove('hidden');
                         evpPasswordInput.value = '';
                         evpPasswordInput.focus();
@@ -222,46 +199,44 @@
                 });
             }
 
-            // 綁定密碼驗證相關事件
-            if (btnCancelPwd) {
-                btnCancelPwd.addEventListener('click', () => {
-                    passwordModal.classList.add('hidden');
-                });
-            }
-            if (btnSubmitPwd) {
-                btnSubmitPwd.addEventListener('click', handlePasswordSubmit);
-            }
+            if (btnCancelPwd) btnCancelPwd.addEventListener('click', () => passwordModal.classList.add('hidden'));
+            if (btnSubmitPwd) btnSubmitPwd.addEventListener('click', handlePasswordSubmit);
             if (evpPasswordInput) {
                 evpPasswordInput.addEventListener('keypress', (e) => {
                     if (e.key === 'Enter') handlePasswordSubmit();
                 });
             }
 
-            // 初始化時強制顯示初始視角
             switchView(state.currentView);
         }
 
-        // --- 雲端資料即時同步 ---
+        // --- 強固型雲端連線引擎 ---
         async function setupFirebase() {
             updateCloudStatus('connecting', '連線中...');
             try {
-                if (typeof __firebase_config === 'undefined' || !__firebase_config) {
-                    throw new Error("環境未配置 Firebase 金鑰，切換至單機模式");
+                // 安全讀取環境變數 (避免 undefined 錯誤)
+                const getEnvVar = (varName) => {
+                    try {
+                        if (typeof window[varName] !== 'undefined') return window[varName];
+                        if (eval("typeof " + varName) !== 'undefined') return eval(varName);
+                    } catch(e) {}
+                    return null;
+                };
+
+                const rawConfig = getEnvVar('__firebase_config');
+                if (!rawConfig) {
+                    updateCloudStatus('warning', '環境無資料庫設定');
+                    return;
                 }
 
-                const config = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
-                
-                if (Object.keys(config).length === 0) {
-                    throw new Error("設定檔為空，切換至單機模式");
-                }
-
-                // 初始化 Firebase 核心
+                // 解析 Config
+                const config = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;
                 app = initializeApp(config);
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // 進行身分驗證
-                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                // 強制驗證流程 (Auth Before Queries)
+                const token = getEnvVar('__initial_auth_token');
                 if (token) {
                     await signInWithCustomToken(auth, token);
                 } else {
@@ -269,67 +244,70 @@
                 }
                 
                 if (!auth.currentUser) {
-                    throw new Error("無法取得使用者憑證");
+                    updateCloudStatus('warning', '取得授權失敗');
+                    return;
                 }
 
-                // 設定文件路徑
-                docRef = doc(db, 'artifacts', appId, 'public', 'data', 'club_state', 'main');
+                // 設定絕對路徑 (強制所有人讀寫同一個 Public Document)
+                const currentAppId = getEnvVar('__app_id') || 'default-app-id';
+                docRef = doc(db, 'artifacts', currentAppId, 'public', 'data', 'club_state', 'main');
                 
-                // 監聽雲端資料變化
+                // 啟動即時監聽
                 onSnapshot(docRef, (docSnap) => {
-                    isFirebaseConnected = true;
-                    updateCloudStatus('connected', '已連線並同步');
+                    isFirebaseConnected = true; // 確認已連線
                     
                     if (docSnap.exists()) {
                         const data = docSnap.data();
-                        if (data.assignments) state.assignments = data.assignments;
-                        if (data.meetingDate) {
-                            state.meetingDate = data.meetingDate;
-                            if (meetingDateInput) meetingDateInput.value = state.meetingDate;
-                            updateMeetingDateDisplay();
-                        }
+                        // 確保安全地覆寫本地狀態
+                        state.assignments = data.assignments || {};
+                        state.meetingDate = data.meetingDate || '';
+                        
+                        updateCloudStatus('connected', '已連線並同步');
+                        
+                        // 即時更新畫面
+                        if (meetingDateInput) meetingDateInput.value = state.meetingDate;
+                        updateMeetingDateDisplay();
                         refreshCurrentView();
                     } else {
-                        // 雲端無資料時，寫入初始狀態
+                        // 若雲端文件不存在 (第一次使用)，則初始化建立
+                        updateCloudStatus('saving', '初始化資料庫...');
                         saveStateData();
                     }
                 }, (error) => {
-                    console.error("Firestore 同步錯誤:", error);
+                    console.error("Firestore 監聽錯誤:", error);
                     isFirebaseConnected = false;
-                    updateCloudStatus('warning', '連線中斷 (單機運作)');
+                    updateCloudStatus('warning', '權限或讀取錯誤');
                 });
 
             } catch (error) {
-                console.warn("系統提示:", error.message);
+                console.error("連線引擎發生例外:", error);
                 isFirebaseConnected = false;
-                updateCloudStatus('warning', '單機模式 (無雲端)');
-                refreshCurrentView(); // 依然渲染畫面，允許無雲端操作
+                updateCloudStatus('warning', '系統連線異常');
             }
         }
 
-        // 統一的儲存資料入口 (優雅降級版本)
+        // --- 強制寫入雲端 ---
         async function saveStateData() {
-            // 如果未連線，則安靜地略過雲端寫入，不跳警告彈窗打擾使用者
             if (!isFirebaseConnected || !docRef || !auth || !auth.currentUser) {
-                console.log("目前為單機模式，資料保存在記憶體中。");
+                console.warn("無法儲存：系統尚未連線至雲端");
                 return;
             }
             
             updateCloudStatus('saving', '同步儲存中...');
             try {
+                // 完全覆寫雲端文件 (不使用 merge，確保刪除動作有效)
                 await setDoc(docRef, {
                     assignments: state.assignments,
                     meetingDate: state.meetingDate,
                     lastUpdated: new Date().toISOString()
-                }, { merge: true });
+                });
                 updateCloudStatus('connected', '已同步至雲端');
             } catch (error) {
-                console.error("儲存至雲端失敗:", error);
-                updateCloudStatus('warning', '同步失敗');
+                console.error("寫入雲端失敗:", error);
+                updateCloudStatus('warning', '寫入失敗');
             }
         }
 
-        // 刷新當前畫面
         function refreshCurrentView() {
             if (state.currentView === 'admin') {
                 renderAdminTable();
@@ -339,25 +317,18 @@
             }
         }
 
-        // 更新狀態燈號指示
         function updateCloudStatus(status, text) {
             if (!cloudDot || !cloudText) return;
             cloudText.textContent = text;
-            
-            // 根據狀態改變燈號顏色與動畫
             cloudDot.className = 'w-1.5 h-1.5 rounded-full ' + (
                 status === 'connected' ? 'bg-green-400' :
-                status === 'saving' ? 'bg-blue-400 animate-pulse' :
-                status === 'connecting' ? 'bg-blue-400 animate-pulse' : 
-                status === 'warning' ? 'bg-yellow-500' :
-                'bg-red-500' 
+                status === 'saving' || status === 'connecting' ? 'bg-blue-400 animate-pulse' : 
+                status === 'warning' ? 'bg-yellow-500' : 'bg-red-500' 
             );
         }
 
-        // --- 密碼驗證處理 ---
         function handlePasswordSubmit() {
-            const pwd = evpPasswordInput.value;
-            if (pwd === '1234') {
+            if (evpPasswordInput.value === '1234') {
                 state.isAdminAuthenticated = true;
                 passwordModal.classList.add('hidden');
                 switchView('admin');
@@ -369,7 +340,6 @@
             }
         }
 
-        // --- 視圖切換邏輯 ---
         function switchView(view) {
             state.currentView = view;
             if (view === 'admin') {
@@ -399,26 +369,18 @@
         }
 
         function updateMeetingDateDisplay() {
-            if (displayMeetingDate) {
-                displayMeetingDate.textContent = state.meetingDate || '尚未設定';
-            }
+            if (displayMeetingDate) displayMeetingDate.textContent = state.meetingDate || '尚未設定';
         }
 
-        // --- 狀態標籤生成器 ---
         function getStatusBadge(status) {
             switch(status) {
-                case 'confirmed':
-                    return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"><svg class="mr-1.5 h-2 w-2 text-green-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg> 已確認就位</span>`;
-                case 'pending':
-                    return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800"><svg class="mr-1.5 h-2 w-2 text-yellow-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg> 待確認</span>`;
-                case 'declined':
-                    return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 animate-pulse"><svg class="mr-1.5 h-2 w-2 text-red-500" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg> 婉拒 / 需重派</span>`;
-                default:
-                    return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">未指派</span>`;
+                case 'confirmed': return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"><svg class="mr-1.5 h-2 w-2 text-green-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg> 已確認就位</span>`;
+                case 'pending': return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800"><svg class="mr-1.5 h-2 w-2 text-yellow-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg> 待確認</span>`;
+                case 'declined': return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 animate-pulse"><svg class="mr-1.5 h-2 w-2 text-red-500" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg> 婉拒 / 需重派</span>`;
+                default: return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">未指派</span>`;
             }
         }
 
-        // --- EVP 視角：渲染分配表 ---
         function renderAdminTable() {
             if (!adminTableBody) return;
             adminTableBody.innerHTML = '';
@@ -427,11 +389,7 @@
                 const tr = document.createElement('tr');
                 const assignment = state.assignments[role] || { member: '', status: 'unassigned' };
                 
-                if (assignment.status === 'declined') {
-                    tr.className = 'bg-red-50 border-b border-red-100 transition duration-150';
-                } else {
-                    tr.className = 'hover:bg-gray-50 border-b border-gray-100 transition duration-150';
-                }
+                tr.className = assignment.status === 'declined' ? 'bg-red-50 border-b border-red-100 transition' : 'hover:bg-gray-50 border-b border-gray-100 transition';
                 
                 let selectOptions = `<option value="">-- 選擇會員 --</option>`;
                 state.members.forEach(member => {
@@ -447,20 +405,15 @@
                             ${selectOptions}
                         </select>
                     </td>
-                    <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                        ${getStatusBadge(assignment.status)}
-                    </td>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">${getStatusBadge(assignment.status)}</td>
                     <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                        ${assignment.status !== 'unassigned' ? 
-                            `<button onclick="clearTask('${role}')" class="text-red-600 hover:text-red-900 text-xs font-medium bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded transition">清除</button>` : ''
-                        }
+                        ${assignment.status !== 'unassigned' ? `<button onclick="clearTask('${role}')" class="text-red-600 hover:text-red-900 text-xs font-medium bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded transition">清除</button>` : ''}
                     </td>
                 `;
                 adminTableBody.appendChild(tr);
             });
         }
 
-        // --- EVP 視角：指派與清除任務 ---
         window.assignTask = function(role, member) {
             if (member) {
                 state.assignments[role] = { member: member, status: 'pending' };
@@ -482,75 +435,43 @@
             saveStateData();
         };
 
-        // --- 更新儀表板進度條 ---
         function updateDashboard() {
             if (!progressBar || !progressText) return;
             const totalRoles = state.roles.length;
-            let confirmedCount = 0;
-
-            for (let role in state.assignments) {
-                if (state.assignments[role].status === 'confirmed') {
-                    confirmedCount++;
-                }
-            }
-
+            let confirmedCount = Object.values(state.assignments).filter(a => a.status === 'confirmed').length;
             const percentage = Math.round((confirmedCount / totalRoles) * 100);
             progressBar.style.width = `${percentage}%`;
             progressText.textContent = `${confirmedCount} / ${totalRoles} (${percentage}%)`;
         }
 
-        // --- 會員視角：渲染任務清單 ---
         function renderMemberTasks() {
             if (!memberTasksList) return;
             memberTasksList.innerHTML = '';
-
             let hasTasks = false;
             
             state.roles.forEach(role => {
                 if (state.assignments[role] && state.assignments[role].member) {
                     hasTasks = true;
-                    const task = { 
-                        role: role, 
-                        member: state.assignments[role].member,
-                        status: state.assignments[role].status 
-                    };
+                    const task = { role: role, member: state.assignments[role].member, status: state.assignments[role].status };
                     
                     const taskCard = document.createElement('div');
-                    taskCard.className = 'flex flex-col md:flex-row justify-between items-center p-5 border rounded-lg mb-4 hover:shadow-md transition';
-                    
-                    const isConfirmed = task.status === 'confirmed';
-                    const isDeclined = task.status === 'declined';
-                    
-                    if (isConfirmed) {
-                        taskCard.classList.add('bg-green-50', 'border-green-200');
-                    } else if (isDeclined) {
-                        taskCard.classList.add('bg-red-50', 'border-red-200');
-                    } else {
-                        taskCard.classList.add('bg-white', 'border-gray-200');
-                    }
+                    taskCard.className = 'flex flex-col md:flex-row justify-between items-center p-5 border rounded-lg mb-4 hover:shadow-md transition ' + 
+                        (task.status === 'confirmed' ? 'bg-green-50 border-green-200' : 
+                         task.status === 'declined' ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200');
+
+                    let statusText = '⚠️ 等待確認是否能勝任';
+                    let statusColor = 'text-yellow-600';
+                    if (task.status === 'confirmed') { statusText = '✅ 已確認將出席'; statusColor = 'text-green-600'; } 
+                    else if (task.status === 'declined') { statusText = '❌ 已婉拒，等待 EVP 重新指派'; statusColor = 'text-red-600 font-semibold'; }
 
                     const infoDiv = document.createElement('div');
                     infoDiv.className = 'mb-4 md:mb-0 w-full md:w-auto flex-grow';
-                    
-                    let statusText = '⚠️ 等待確認是否能勝任';
-                    let statusColor = 'text-yellow-600';
-
-                    if (isConfirmed) {
-                        statusText = '✅ 已確認將出席';
-                        statusColor = 'text-green-600';
-                    } else if (isDeclined) {
-                        statusText = '❌ 已婉拒，等待 EVP 重新指派';
-                        statusColor = 'text-red-600 font-semibold';
-                    }
-
                     infoDiv.innerHTML = `
                         <div class="flex items-center gap-3 mb-1">
                             <span class="px-3 py-1 bg-blue-100 text-blue-800 font-bold rounded text-sm">${task.member}</span>
                             <h3 class="text-lg font-bold text-gray-800">${task.role}</h3>
                         </div>
-                        <p class="text-sm ${statusColor} mt-2 flex items-center font-medium">
-                            ${statusText}
-                        </p>
+                        <p class="text-sm ${statusColor} mt-2 flex items-center font-medium">${statusText}</p>
                     `;
 
                     const actionDiv = document.createElement('div');
@@ -569,7 +490,7 @@
 
                         actionDiv.appendChild(btnConfirm);
                         actionDiv.appendChild(btnDecline);
-                    } else if (isConfirmed) {
+                    } else if (task.status === 'confirmed') {
                         const btnRevoke = document.createElement('button');
                         btnRevoke.className = 'px-4 py-2 text-sm text-gray-500 hover:text-red-500 underline transition w-full text-right md:text-left';
                         btnRevoke.textContent = '取消確認 (重設狀態)';
@@ -586,15 +507,12 @@
             if (!hasTasks) {
                 memberTasksList.innerHTML = `
                     <div class="text-center py-12 text-gray-500 bg-white rounded-lg border border-dashed border-gray-300">
-                        <svg class="mx-auto h-12 w-12 text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                        </svg>
+                        <svg class="mx-auto h-12 w-12 text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                         目前 EVP 尚未指派任何任務。
                     </div>`;
             }
         }
 
-        // --- 會員視角：互動功能 ---
         window.confirmTask = function(role, memberName) {
             if (state.assignments[role]) {
                 state.assignments[role].status = 'confirmed';
@@ -622,7 +540,6 @@
             }
         };
 
-        // --- 右下角 Toast 提示功能 ---
         function showToast(message, type = 'success') {
             let toast = document.getElementById('toast');
             if (!toast) {
@@ -631,23 +548,16 @@
                 toast.className = 'fixed bottom-5 right-5 px-6 py-3 rounded-lg shadow-lg text-white font-medium transform transition-all duration-300 translate-y-20 opacity-0 z-50';
                 document.body.appendChild(toast);
             }
-            
-            if (type === 'warning') {
-                toast.className = 'fixed bottom-5 right-5 px-6 py-3 rounded-lg shadow-lg text-white font-medium transform transition-all duration-300 translate-y-20 opacity-0 z-50 bg-red-500';
-            } else {
-                toast.className = 'fixed bottom-5 right-5 px-6 py-3 rounded-lg shadow-lg text-white font-medium transform transition-all duration-300 translate-y-20 opacity-0 z-50 bg-green-600';
-            }
-            
+            toast.className = 'fixed bottom-5 right-5 px-6 py-3 rounded-lg shadow-lg text-white font-medium transform transition-all duration-300 translate-y-20 opacity-0 z-50 ' + (type === 'warning' ? 'bg-red-500' : 'bg-green-600');
             toast.textContent = message;
             
             setTimeout(() => toast.classList.remove('translate-y-20', 'opacity-0'), 10);
             setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
         }
 
-        // --- 綁定啟動程序 ---
         window.addEventListener('DOMContentLoaded', () => {
             init();
-            setupFirebase(); // 啟動雲端同步
+            setupFirebase(); 
         });
     </script>
 </body>
