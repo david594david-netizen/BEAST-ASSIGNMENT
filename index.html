@@ -124,6 +124,7 @@
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         
         let app, auth, db, docRef;
+        let isFirebaseConnected = false; // 新增連線狀態旗標
 
         // --- 核心資料狀態 ---
         const state = {
@@ -187,10 +188,10 @@
         
         // --- 初始化系統 ---
         function init() {
-            // 【重要修復】：一進入系統，強制清除所有瀏覽器舊的單機快取，確保不會拿舊資料覆蓋雲端！
+            // 一進入系統，強制清除所有瀏覽器舊的單機快取，避免污染
             localStorage.removeItem('toastmaster_local_backup');
 
-            // 預設填入今天日期 (如果雲端還沒資料的話)
+            // 預設填入今天日期 (如果沒有資料的話)
             const today = new Date().toISOString().split('T')[0];
             if (!state.meetingDate) {
                 state.meetingDate = today;
@@ -217,7 +218,7 @@
                     state.meetingDate = e.target.value;
                     updateMeetingDateDisplay();
                     saveStateData();
-                    showToast('會議日期已更新並儲存！');
+                    showToast('會議日期已更新！');
                 });
             }
 
@@ -236,7 +237,7 @@
                 });
             }
 
-            // 初始化時強制顯示初始視角 (避免畫面空白)
+            // 初始化時強制顯示初始視角
             switchView(state.currentView);
         }
 
@@ -245,13 +246,13 @@
             updateCloudStatus('connecting', '連線中...');
             try {
                 if (typeof __firebase_config === 'undefined' || !__firebase_config) {
-                    throw new Error("找不到雲端資料庫設定檔 (未配置)");
+                    throw new Error("環境未配置 Firebase 金鑰，切換至單機模式");
                 }
 
                 const config = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
                 
                 if (Object.keys(config).length === 0) {
-                    throw new Error("雲端資料庫設定檔為空");
+                    throw new Error("設定檔為空，切換至單機模式");
                 }
 
                 // 初始化 Firebase 核心
@@ -271,16 +272,16 @@
                     throw new Error("無法取得使用者憑證");
                 }
 
-                // 確保登入後才存取共用資料表 (嚴格遵循路徑規則)
+                // 設定文件路徑
                 docRef = doc(db, 'artifacts', appId, 'public', 'data', 'club_state', 'main');
                 
-                // 監聽雲端資料變化 (其他人的修改會立刻反映在畫面上)
+                // 監聽雲端資料變化
                 onSnapshot(docRef, (docSnap) => {
+                    isFirebaseConnected = true;
                     updateCloudStatus('connected', '已連線並同步');
+                    
                     if (docSnap.exists()) {
                         const data = docSnap.data();
-                        
-                        // 確保只有當雲端有資料時才覆蓋本地狀態
                         if (data.assignments) state.assignments = data.assignments;
                         if (data.meetingDate) {
                             state.meetingDate = data.meetingDate;
@@ -289,31 +290,32 @@
                         }
                         refreshCurrentView();
                     } else {
-                        // 若雲端無資料 (第一次使用)，將當前畫面預設狀態存上去
+                        // 雲端無資料時，寫入初始狀態
                         saveStateData();
                     }
                 }, (error) => {
-                    console.error("Firestore 即時同步錯誤:", error);
-                    updateCloudStatus('error', '雲端同步失敗');
+                    console.error("Firestore 同步錯誤:", error);
+                    isFirebaseConnected = false;
+                    updateCloudStatus('warning', '連線中斷 (單機運作)');
                 });
+
             } catch (error) {
-                console.warn("Firebase 暫未連線:", error.message);
-                updateCloudStatus('error', '未連線 (無法同步)');
-                
-                // 完全移除本機快取還原邏輯，避免不同步
-                refreshCurrentView();
+                console.warn("系統提示:", error.message);
+                isFirebaseConnected = false;
+                updateCloudStatus('warning', '單機模式 (無雲端)');
+                refreshCurrentView(); // 依然渲染畫面，允許無雲端操作
             }
         }
 
-        // 統一的儲存資料入口 (強制僅存入雲端，拔除單機備份)
+        // 統一的儲存資料入口 (優雅降級版本)
         async function saveStateData() {
-            if (!docRef || !auth || !auth.currentUser) {
-                updateCloudStatus('error', '尚未連線，無法儲存');
-                showToast('尚未連線雲端，資料暫時無法同步！', 'warning');
+            // 如果未連線，則安靜地略過雲端寫入，不跳警告彈窗打擾使用者
+            if (!isFirebaseConnected || !docRef || !auth || !auth.currentUser) {
+                console.log("目前為單機模式，資料保存在記憶體中。");
                 return;
             }
             
-            updateCloudStatus('saving', '儲存中...');
+            updateCloudStatus('saving', '同步儲存中...');
             try {
                 await setDoc(docRef, {
                     assignments: state.assignments,
@@ -323,8 +325,7 @@
                 updateCloudStatus('connected', '已同步至雲端');
             } catch (error) {
                 console.error("儲存至雲端失敗:", error);
-                updateCloudStatus('error', '雲端儲存失敗');
-                showToast('雲端同步失敗，請確認網路狀態！', 'warning');
+                updateCloudStatus('warning', '同步失敗');
             }
         }
 
@@ -346,10 +347,10 @@
             // 根據狀態改變燈號顏色與動畫
             cloudDot.className = 'w-1.5 h-1.5 rounded-full ' + (
                 status === 'connected' ? 'bg-green-400' :
-                status === 'saving' ? 'bg-yellow-400 animate-pulse' :
+                status === 'saving' ? 'bg-blue-400 animate-pulse' :
                 status === 'connecting' ? 'bg-blue-400 animate-pulse' : 
                 status === 'warning' ? 'bg-yellow-500' :
-                'bg-red-500' // error
+                'bg-red-500' 
             );
         }
 
@@ -372,13 +373,11 @@
         function switchView(view) {
             state.currentView = view;
             if (view === 'admin') {
-                // 更新按鈕樣式
                 btnAdmin.classList.add('bg-blue-700', 'text-white');
                 btnAdmin.classList.remove('bg-transparent', 'border', 'border-blue-400');
                 btnMember.classList.add('bg-transparent', 'border', 'border-blue-400');
                 btnMember.classList.remove('bg-blue-700', 'text-white');
 
-                // 顯示/隱藏區塊
                 viewAdmin.classList.remove('hidden');
                 dashboardStatus.classList.remove('hidden');
                 viewMember.classList.add('hidden');
@@ -386,13 +385,11 @@
                 renderAdminTable();
                 updateDashboard();
             } else {
-                // 更新按鈕樣式
                 btnMember.classList.add('bg-blue-700', 'text-white');
                 btnMember.classList.remove('bg-transparent', 'border', 'border-blue-400');
                 btnAdmin.classList.add('bg-transparent', 'border', 'border-blue-400');
                 btnAdmin.classList.remove('bg-blue-700', 'text-white');
 
-                // 顯示/隱藏區塊
                 viewMember.classList.remove('hidden');
                 viewAdmin.classList.add('hidden');
                 dashboardStatus.classList.add('hidden');
@@ -430,14 +427,12 @@
                 const tr = document.createElement('tr');
                 const assignment = state.assignments[role] || { member: '', status: 'unassigned' };
                 
-                // 若會員婉拒，將該列標記為淺紅色背景提示EVP
                 if (assignment.status === 'declined') {
                     tr.className = 'bg-red-50 border-b border-red-100 transition duration-150';
                 } else {
                     tr.className = 'hover:bg-gray-50 border-b border-gray-100 transition duration-150';
                 }
                 
-                // 建立下拉選單
                 let selectOptions = `<option value="">-- 選擇會員 --</option>`;
                 state.members.forEach(member => {
                     const selected = assignment.member === member ? 'selected="selected"' : '';
@@ -476,7 +471,7 @@
             }
             renderAdminTable();
             updateDashboard();
-            saveStateData(); // 觸發儲存
+            saveStateData();
         };
 
         window.clearTask = function(role) {
@@ -484,7 +479,7 @@
             showToast(`已清除 ${role} 的指派`);
             renderAdminTable();
             updateDashboard();
-            saveStateData(); // 觸發儲存
+            saveStateData();
         };
 
         // --- 更新儀表板進度條 ---
@@ -605,7 +600,7 @@
                 state.assignments[role].status = 'confirmed';
                 showToast(`謝謝您，${memberName}！您已成功確認擔任 ${role}。`);
                 renderMemberTasks();
-                saveStateData(); // 觸發儲存
+                saveStateData();
             }
         };
         
@@ -614,7 +609,7 @@
                 state.assignments[role].status = 'declined';
                 showToast(`您已婉拒 ${role} 職務，系統將提醒 EVP 重新指派。`, 'warning');
                 renderMemberTasks();
-                saveStateData(); // 觸發儲存
+                saveStateData();
             }
         };
         
@@ -623,7 +618,7 @@
                 state.assignments[role].status = 'pending';
                 showToast(`已取消確認狀態。`, 'warning');
                 renderMemberTasks();
-                saveStateData(); // 觸發儲存
+                saveStateData();
             }
         };
 
@@ -645,13 +640,8 @@
             
             toast.textContent = message;
             
-            // 顯示動畫
             setTimeout(() => toast.classList.remove('translate-y-20', 'opacity-0'), 10);
-            
-            // 隱藏動畫
-            setTimeout(() => {
-                toast.classList.add('translate-y-20', 'opacity-0');
-            }, 3000);
+            setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
         }
 
         // --- 綁定啟動程序 ---
