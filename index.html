@@ -120,10 +120,24 @@
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // 動態加入載入防護罩，避免資料還沒抓完就被覆寫
+        const overlay = document.createElement('div');
+        overlay.id = 'system-loading';
+        overlay.className = 'fixed inset-0 bg-white/90 z-[100] flex flex-col items-center justify-center backdrop-blur-sm transition-opacity duration-300';
+        overlay.innerHTML = '<div class="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mb-4"></div><p class="text-gray-800 font-bold text-lg tracking-wider">正在與雲端同步最新資料...</p>';
+        document.body.appendChild(overlay);
+
+        function hideLoading() {
+            const el = document.getElementById('system-loading');
+            if (el) {
+                el.style.opacity = '0';
+                setTimeout(() => el.remove(), 300);
+            }
+        }
+
         let app, auth, db, docRef;
         let isFirebaseConnected = false; 
 
-        // --- 核心資料狀態 ---
         const state = {
             currentView: 'member', 
             isAdminAuthenticated: false, 
@@ -146,7 +160,6 @@
             assignments: {} 
         };
 
-        // --- DOM 元素綁定 ---
         const btnAdmin = document.getElementById('btn-admin');
         const btnMember = document.getElementById('btn-member');
         const viewAdmin = document.getElementById('view-admin');
@@ -167,17 +180,7 @@
         const cloudDot = document.getElementById('cloud-dot');
         const cloudText = document.getElementById('cloud-text');
         
-        // --- 初始化系統 ---
         function init() {
-            // 強制清除任何舊有的本機干擾
-            localStorage.removeItem('toastmaster_local_backup');
-
-            if (!state.meetingDate) {
-                state.meetingDate = new Date().toISOString().split('T')[0];
-            }
-            if (meetingDateInput) meetingDateInput.value = state.meetingDate;
-            updateMeetingDateDisplay();
-
             if (btnAdmin) {
                 btnAdmin.addEventListener('click', () => {
                     if (state.isAdminAuthenticated) {
@@ -190,6 +193,7 @@
                 });
             }
             if (btnMember) btnMember.addEventListener('click', () => switchView('member'));
+            
             if (meetingDateInput) {
                 meetingDateInput.addEventListener('change', (e) => {
                     state.meetingDate = e.target.value;
@@ -206,105 +210,108 @@
                     if (e.key === 'Enter') handlePasswordSubmit();
                 });
             }
-
-            switchView(state.currentView);
         }
 
-        // --- 強固型雲端連線引擎 ---
         async function setupFirebase() {
-            updateCloudStatus('connecting', '連線中...');
             try {
-                // 安全讀取環境變數 (避免 undefined 錯誤)
-                const getEnvVar = (varName) => {
-                    try {
-                        if (typeof window[varName] !== 'undefined') return window[varName];
-                        if (eval("typeof " + varName) !== 'undefined') return eval(varName);
-                    } catch(e) {}
-                    return null;
-                };
-
-                const rawConfig = getEnvVar('__firebase_config');
-                if (!rawConfig) {
-                    updateCloudStatus('warning', '環境無資料庫設定');
+                // 安全取得環境變數
+                const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'toastmaster-beast-default';
+                
+                if (!configStr) {
+                    console.warn("無法取得 Firebase 設定檔，切換至單機備援模式");
+                    enableLocalFallback();
                     return;
                 }
 
-                // 解析 Config
-                const config = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;
+                const config = typeof configStr === 'string' ? JSON.parse(configStr) : configStr;
                 app = initializeApp(config);
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // 強制驗證流程 (Auth Before Queries)
-                const token = getEnvVar('__initial_auth_token');
+                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                 if (token) {
                     await signInWithCustomToken(auth, token);
                 } else {
                     await signInAnonymously(auth);
                 }
-                
-                if (!auth.currentUser) {
-                    updateCloudStatus('warning', '取得授權失敗');
-                    return;
-                }
 
-                // 設定絕對路徑 (強制所有人讀寫同一個 Public Document)
-                const currentAppId = getEnvVar('__app_id') || 'default-app-id';
-                docRef = doc(db, 'artifacts', currentAppId, 'public', 'data', 'club_state', 'main');
+                if (!auth.currentUser) throw new Error("無效的授權");
+
+                // 固定雲端檔案路徑
+                docRef = doc(db, 'artifacts', appId, 'public', 'data', 'club_state', 'main');
                 
-                // 啟動即時監聽
                 onSnapshot(docRef, (docSnap) => {
-                    isFirebaseConnected = true; // 確認已連線
-                    
+                    isFirebaseConnected = true;
                     if (docSnap.exists()) {
                         const data = docSnap.data();
-                        // 確保安全地覆寫本地狀態
                         state.assignments = data.assignments || {};
                         state.meetingDate = data.meetingDate || '';
                         
-                        updateCloudStatus('connected', '已連線並同步');
-                        
-                        // 即時更新畫面
+                        // 資料下載完成，更新畫面
                         if (meetingDateInput) meetingDateInput.value = state.meetingDate;
                         updateMeetingDateDisplay();
                         refreshCurrentView();
+                        updateCloudStatus('connected', '已連線並同步');
                     } else {
-                        // 若雲端文件不存在 (第一次使用)，則初始化建立
-                        updateCloudStatus('saving', '初始化資料庫...');
+                        // 首次建立
                         saveStateData();
                     }
+                    hideLoading(); // 確保抓完資料才解除防護罩
                 }, (error) => {
-                    console.error("Firestore 監聽錯誤:", error);
-                    isFirebaseConnected = false;
-                    updateCloudStatus('warning', '權限或讀取錯誤');
+                    console.error("雲端讀取遭拒或失敗:", error);
+                    enableLocalFallback();
                 });
 
             } catch (error) {
-                console.error("連線引擎發生例外:", error);
-                isFirebaseConnected = false;
-                updateCloudStatus('warning', '系統連線異常');
+                console.error("連線引擎發生錯誤:", error);
+                enableLocalFallback();
             }
         }
 
-        // --- 強制寫入雲端 ---
-        async function saveStateData() {
-            if (!isFirebaseConnected || !docRef || !auth || !auth.currentUser) {
-                console.warn("無法儲存：系統尚未連線至雲端");
-                return;
-            }
+        function enableLocalFallback() {
+            isFirebaseConnected = false;
+            updateCloudStatus('warning', '單機儲存模式');
             
-            updateCloudStatus('saving', '同步儲存中...');
-            try {
-                // 完全覆寫雲端文件 (不使用 merge，確保刪除動作有效)
-                await setDoc(docRef, {
+            // 讀取最後一次的備份
+            const localData = localStorage.getItem('toastmaster_backup_v2');
+            if (localData) {
+                try {
+                    const parsed = JSON.parse(localData);
+                    state.assignments = parsed.assignments || {};
+                    state.meetingDate = parsed.meetingDate || '';
+                } catch(e) {}
+            } else if (!state.meetingDate) {
+                state.meetingDate = new Date().toISOString().split('T')[0];
+            }
+
+            if (meetingDateInput) meetingDateInput.value = state.meetingDate;
+            updateMeetingDateDisplay();
+            refreshCurrentView();
+            hideLoading(); // 解除防護罩
+        }
+
+        async function saveStateData() {
+            if (isFirebaseConnected && docRef && auth.currentUser) {
+                updateCloudStatus('saving', '同步儲存中...');
+                try {
+                    await setDoc(docRef, {
+                        assignments: state.assignments,
+                        meetingDate: state.meetingDate,
+                        lastUpdated: new Date().toISOString()
+                    });
+                    updateCloudStatus('connected', '已同步至雲端');
+                } catch (error) {
+                    console.error("寫入雲端失敗:", error);
+                    updateCloudStatus('warning', '寫入失敗');
+                }
+            } else {
+                // 如果沒連上雲端，自動存入本機，防止重整消失
+                localStorage.setItem('toastmaster_backup_v2', JSON.stringify({
                     assignments: state.assignments,
-                    meetingDate: state.meetingDate,
-                    lastUpdated: new Date().toISOString()
-                });
-                updateCloudStatus('connected', '已同步至雲端');
-            } catch (error) {
-                console.error("寫入雲端失敗:", error);
-                updateCloudStatus('warning', '寫入失敗');
+                    meetingDate: state.meetingDate
+                }));
+                updateCloudStatus('warning', '已存本機');
             }
         }
 
@@ -558,6 +565,7 @@
         window.addEventListener('DOMContentLoaded', () => {
             init();
             setupFirebase(); 
+            switchView(state.currentView);
         });
     </script>
 </body>
