@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BEAST Toastmasters 任務分配系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+    
+    <!-- Header -->
+    <header class="bg-blue-900 text-white shadow-md py-4 px-6 sticky top-0 z-10">
+        <div class="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-bold tracking-wider">BEAST TOASTMASTER CLUB</h1>
+                <p class="text-blue-200 text-sm mt-1">會議任務分配與確認系統</p>
+            </div>
+            <div class="flex space-x-2">
+                <button id="btn-admin" class="px-4 py-2 bg-blue-700 rounded-md font-medium transition duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">EVP視角</button>
+                <button id="btn-member" class="px-4 py-2 bg-transparent border border-blue-400 hover:bg-blue-800 rounded-md font-medium transition duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">會員視角</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-6xl mx-auto w-full p-4 md:p-6">
+        
+        <!-- Dashboard Progress -->
+        <div id="dashboard-status" class="mb-6 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="font-semibold text-gray-700">任務就位進度</h3>
+                <span id="progress-text" class="text-sm font-bold text-blue-600">0 / 0 (0%)</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- EVP View (Admin) -->
+        <div id="view-admin" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hidden">
+            <div class="p-6 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800">任務分配表 (Assignment)</h2>
+                    <div class="text-xs text-gray-500 italic mt-1">教育副會長 (EVP) 專屬視角</div>
+                </div>
+                <div class="flex items-center space-x-3 bg-white px-4 py-2 rounded-lg border border-gray-200 shadow-sm">
+                    <label for="meeting-date" class="text-sm font-medium text-gray-700 whitespace-nowrap">Meeting 日期:</label>
+                    <input type="date" id="meeting-date" class="p-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-gray-700">
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">會議角色 (Role)</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">指派會員 (Member)</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">確認狀態 (Status)</th>
+                            <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="admin-table-body" class="bg-white divide-y divide-gray-200">
+                        <!-- Table rows will be injected here via JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Member View -->
+        <div id="view-member" class="hidden">
+            <div id="member-tasks-container" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden max-w-3xl mx-auto">
+                <div class="p-6 border-b border-gray-100 bg-blue-50 flex justify-between items-center">
+                    <h2 class="text-xl font-bold text-blue-900">任務確認看板</h2>
+                    <div class="text-sm font-medium text-blue-700 bg-blue-100 px-3 py-1 rounded-full">
+                        Meeting: <span id="display-meeting-date">尚未設定</span>
+                    </div>
+                </div>
+                <div class="p-4 bg-yellow-50 border-b border-yellow-100 text-sm text-yellow-800 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-yellow-600" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                    </svg>
+                    請在下方列表尋找您的名字。若您被指派了任務，請點擊「確認接收」或「無法擔任」。
+                </div>
+                <div id="member-tasks-list" class="p-6">
+                    <!-- Tasks will be injected here via JavaScript -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- 核心資料狀態 ---
+        const state = {
+            currentView: 'admin', 
+            meetingDate: '',
+            roles: [
+                "Toastmaster", 
+                "Captain", 
+                "Warm-up", 
+                "Timer", 
+                "Ah Counter", 
+                "Grammarian", 
+                "Word of the Day", 
+                "Joker", 
+                "Photographer", 
+                "E-Voting", 
+                "Speaker 1", 
+                "Speaker 2", 
+                "Speaker 3", 
+                "Table Topic", 
+                "General Evaluator", 
+                "Evaluator 1", 
+                "Evaluator 2", 
+                "Evaluator 3"
+            ],
+            // 更新的會員名單
+            members: [
+                "Alan Hsu", "Angeles Wu", "Bianca Wang", "David Lin", 
+                "Jacob Tsai", "Lynn Chang", "Monica Yao", "Ping Hsiao", 
+                "Roger Hsu", "Sara Hung", "Carol Hung", "Simon Lin", 
+                "Sunny Lin", "TS Hsieh", "Sheila Chou", "Kai Kao", 
+                "Greg Tsai", "Jefferson Zheng", "Blanche Hsiao", "Julie Yu", 
+                "Maple Hung", "Ray Chen", "Maggie Wu", "Helen Kuo"
+            ],
+            assignments: {} // { role: { member: 'Name', status: 'pending'|'confirmed'|'declined' } }
+        };
+
+        // --- DOM 元素綁定 ---
+        const btnAdmin = document.getElementById('btn-admin');
+        const btnMember = document.getElementById('btn-member');
+        const viewAdmin = document.getElementById('view-admin');
+        const viewMember = document.getElementById('view-member');
+        const dashboardStatus = document.getElementById('dashboard-status');
+        const adminTableBody = document.getElementById('admin-table-body');
+        const memberTasksList = document.getElementById('member-tasks-list');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const meetingDateInput = document.getElementById('meeting-date');
+        const displayMeetingDate = document.getElementById('display-meeting-date');
+
+        // --- 初始化系統 ---
+        function init() {
+            // 預設填入今天日期
+            const today = new Date().toISOString().split('T')[0];
+            state.meetingDate = today;
+            if (meetingDateInput) meetingDateInput.value = today;
+            updateMeetingDateDisplay();
+
+            // 綁定事件監聽
+            if (btnAdmin) btnAdmin.addEventListener('click', () => switchView('admin'));
+            if (btnMember) btnMember.addEventListener('click', () => switchView('member'));
+            if (meetingDateInput) {
+                meetingDateInput.addEventListener('change', (e) => {
+                    state.meetingDate = e.target.value;
+                    updateMeetingDateDisplay();
+                    showToast('會議日期已更新！');
+                });
+            }
+
+            // 啟動 EVP 視角
+            switchView('admin');
+        }
+
+        // --- 視圖切換邏輯 ---
+        function switchView(view) {
+            state.currentView = view;
+            if (view === 'admin') {
+                // 更新按鈕樣式
+                btnAdmin.classList.add('bg-blue-700', 'text-white');
+                btnAdmin.classList.remove('bg-transparent', 'border', 'border-blue-400');
+                btnMember.classList.add('bg-transparent', 'border', 'border-blue-400');
+                btnMember.classList.remove('bg-blue-700', 'text-white');
+
+                // 顯示/隱藏區塊
+                viewAdmin.classList.remove('hidden');
+                dashboardStatus.classList.remove('hidden');
+                viewMember.classList.add('hidden');
+                
+                renderAdminTable();
+                updateDashboard();
+            } else {
+                // 更新按鈕樣式
+                btnMember.classList.add('bg-blue-700', 'text-white');
+                btnMember.classList.remove('bg-transparent', 'border', 'border-blue-400');
+                btnAdmin.classList.add('bg-transparent', 'border', 'border-blue-400');
+                btnAdmin.classList.remove('bg-blue-700', 'text-white');
+
+                // 顯示/隱藏區塊
+                viewMember.classList.remove('hidden');
+                viewAdmin.classList.add('hidden');
+                dashboardStatus.classList.add('hidden');
+                
+                renderMemberTasks();
+            }
+        }
+
+        function updateMeetingDateDisplay() {
+            if (displayMeetingDate) {
+                displayMeetingDate.textContent = state.meetingDate || '尚未設定';
+            }
+        }
+
+        // --- 狀態標籤生成器 ---
+        function getStatusBadge(status) {
+            switch(status) {
+                case 'confirmed':
+                    return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"><svg class="mr-1.5 h-2 w-2 text-green-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg> 已確認就位</span>`;
+                case 'pending':
+                    return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800"><svg class="mr-1.5 h-2 w-2 text-yellow-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg> 待確認</span>`;
+                case 'declined':
+                    return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 animate-pulse"><svg class="mr-1.5 h-2 w-2 text-red-500" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg> 婉拒 / 需重派</span>`;
+                default:
+                    return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">未指派</span>`;
+            }
+        }
+
+        // --- EVP 視角：渲染分配表 ---
+        function renderAdminTable() {
+            if (!adminTableBody) return;
+            adminTableBody.innerHTML = '';
+            
+            state.roles.forEach(role => {
+                const tr = document.createElement('tr');
+                const assignment = state.assignments[role] || { member: '', status: 'unassigned' };
+                
+                // 若會員婉拒，將該列標記為淺紅色背景提示EVP
+                if (assignment.status === 'declined') {
+                    tr.className = 'bg-red-50 border-b border-red-100 transition duration-150';
+                } else {
+                    tr.className = 'hover:bg-gray-50 border-b border-gray-100 transition duration-150';
+                }
+                
+                // 建立下拉選單
+                let selectOptions = `<option value="">-- 選擇會員 --</option>`;
+                state.members.forEach(member => {
+                    const selected = assignment.member === member ? 'selected' : '';
+                    selectOptions += `<option value="${member}" ${selected}>${member}</option>`;
+                });
+
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">${role}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <select class="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md bg-white border shadow-sm" 
+                                onchange="assignTask('${role}', this.value)">
+                            ${selectOptions}
+                        </select>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${getStatusBadge(assignment.status)}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                        ${assignment.status !== 'unassigned' ? 
+                            `<button onclick="clearTask('${role}')" class="text-red-600 hover:text-red-900 text-xs font-medium bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded transition">清除</button>` : ''
+                        }
+                    </td>
+                `;
+                adminTableBody.appendChild(tr);
+            });
+        }
+
+        // --- EVP 視角：指派與清除任務 ---
+        window.assignTask = function(role, member) {
+            if (member) {
+                state.assignments[role] = { member: member, status: 'pending' };
+                showToast(`已將 ${role} 指派給 ${member}`);
+            } else {
+                delete state.assignments[role];
+                showToast(`已取消 ${role} 的指派`);
+            }
+            renderAdminTable();
+            updateDashboard();
+        };
+
+        window.clearTask = function(role) {
+            delete state.assignments[role];
+            showToast(`已清除 ${role} 的指派`);
+            renderAdminTable();
+            updateDashboard();
+        };
+
+        // --- 更新儀表板進度條 ---
+        function updateDashboard() {
+            if (!progressBar || !progressText) return;
+            const totalRoles = state.roles.length;
+            let confirmedCount = 0;
+
+            for (let role in state.assignments) {
+                if (state.assignments[role].status === 'confirmed') {
+                    confirmedCount++;
+                }
+            }
+
+            const percentage = Math.round((confirmedCount / totalRoles) * 100);
+            progressBar.style.width = `${percentage}%`;
+            progressText.textContent = `${confirmedCount} / ${totalRoles} (${percentage}%)`;
+        }
+
+        // --- 會員視角：渲染任務清單 ---
+        function renderMemberTasks() {
+            if (!memberTasksList) return;
+            memberTasksList.innerHTML = '';
+
+            let hasTasks = false;
+            
+            state.roles.forEach(role => {
+                if (state.assignments[role] && state.assignments[role].member) {
+                    hasTasks = true;
+                    const task = { 
+                        role: role, 
+                        member: state.assignments[role].member,
+                        status: state.assignments[role].status 
+                    };
+                    
+                    const taskCard = document.createElement('div');
+                    taskCard.className = 'flex flex-col md:flex-row justify-between items-center p-5 border rounded-lg mb-4 hover:shadow-md transition';
+                    
+                    const isConfirmed = task.status === 'confirmed';
+                    const isDeclined = task.status === 'declined';
+                    
+                    if (isConfirmed) {
+                        taskCard.classList.add('bg-green-50', 'border-green-200');
+                    } else if (isDeclined) {
+                        taskCard.classList.add('bg-red-50', 'border-red-200');
+                    } else {
+                        taskCard.classList.add('bg-white', 'border-gray-200');
+                    }
+
+                    const infoDiv = document.createElement('div');
+                    infoDiv.className = 'mb-4 md:mb-0 w-full md:w-auto flex-grow';
+                    
+                    let statusText = '⚠️ 等待確認是否能勝任';
+                    let statusColor = 'text-yellow-600';
+
+                    if (isConfirmed) {
+                        statusText = '✅ 已確認將出席';
+                        statusColor = 'text-green-600';
+                    } else if (isDeclined) {
+                        statusText = '❌ 已婉拒，等待 EVP 重新指派';
+                        statusColor = 'text-red-600 font-semibold';
+                    }
+
+                    infoDiv.innerHTML = `
+                        <div class="flex items-center gap-3 mb-1">
+                            <span class="px-3 py-1 bg-blue-100 text-blue-800 font-bold rounded text-sm">${task.member}</span>
+                            <h3 class="text-lg font-bold text-gray-800">${task.role}</h3>
+                        </div>
+                        <p class="text-sm ${statusColor} mt-2 flex items-center font-medium">
+                            ${statusText}
+                        </p>
+                    `;
+
+                    const actionDiv = document.createElement('div');
+                    actionDiv.className = 'flex gap-2 w-full md:w-auto';
+                    
+                    if (task.status === 'pending') {
+                        const btnConfirm = document.createElement('button');
+                        btnConfirm.className = 'flex-1 md:flex-none px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium shadow-sm transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500';
+                        btnConfirm.textContent = '確認接收';
+                        btnConfirm.onclick = () => confirmTask(task.role, task.member);
+                        
+                        const btnDecline = document.createElement('button');
+                        btnDecline.className = 'flex-1 md:flex-none px-4 py-2 bg-white border border-red-300 text-red-600 hover:bg-red-50 rounded-md font-medium shadow-sm transition duration-200 focus:outline-none focus:ring-2 focus:ring-red-500';
+                        btnDecline.textContent = '無法擔任';
+                        btnDecline.onclick = () => declineTask(task.role, task.member);
+
+                        actionDiv.appendChild(btnConfirm);
+                        actionDiv.appendChild(btnDecline);
+                    } else if (isConfirmed) {
+                        const btnRevoke = document.createElement('button');
+                        btnRevoke.className = 'px-4 py-2 text-sm text-gray-500 hover:text-red-500 underline transition w-full text-right md:text-left';
+                        btnRevoke.textContent = '取消確認 (重設狀態)';
+                        btnRevoke.onclick = () => revokeTask(task.role);
+                        actionDiv.appendChild(btnRevoke);
+                    }
+
+                    taskCard.appendChild(infoDiv);
+                    taskCard.appendChild(actionDiv);
+                    memberTasksList.appendChild(taskCard);
+                }
+            });
+
+            if (!hasTasks) {
+                memberTasksList.innerHTML = `
+                    <div class="text-center py-12 text-gray-500 bg-white rounded-lg border border-dashed border-gray-300">
+                        <svg class="mx-auto h-12 w-12 text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        目前 EVP 尚未指派任何任務。
+                    </div>`;
+            }
+        }
+
+        // --- 會員視角：互動功能 ---
+        window.confirmTask = function(role, memberName) {
+            if (state.assignments[role]) {
+                state.assignments[role].status = 'confirmed';
+                showToast(`謝謝您，${memberName}！您已成功確認擔任 ${role}。`);
+                renderMemberTasks();
+            }
+        };
+        
+        window.declineTask = function(role, memberName) {
+            if (state.assignments[role]) {
+                state.assignments[role].status = 'declined';
+                showToast(`您已婉拒 ${role} 職務，系統將提醒 EVP 重新指派。`, 'warning');
+                renderMemberTasks();
+            }
+        };
+        
+        window.revokeTask = function(role) {
+            if (state.assignments[role]) {
+                state.assignments[role].status = 'pending';
+                showToast(`已取消確認狀態。`, 'warning');
+                renderMemberTasks();
+            }
+        };
+
+        // --- 右下角 Toast 提示功能 ---
+        function showToast(message, type = 'success') {
+            let toast = document.getElementById('toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'toast';
+                toast.className = 'fixed bottom-5 right-5 px-6 py-3 rounded-lg shadow-lg text-white font-medium transform transition-all duration-300 translate-y-20 opacity-0 z-50';
+                document.body.appendChild(toast);
+            }
+            
+            if (type === 'warning') {
+                toast.className = 'fixed bottom-5 right-5 px-6 py-3 rounded-lg shadow-lg text-white font-medium transform transition-all duration-300 translate-y-20 opacity-0 z-50 bg-red-500';
+            } else {
+                toast.className = 'fixed bottom-5 right-5 px-6 py-3 rounded-lg shadow-lg text-white font-medium transform transition-all duration-300 translate-y-20 opacity-0 z-50 bg-green-600';
+            }
+            
+            toast.textContent = message;
+            
+            // 顯示動畫
+            setTimeout(() => toast.classList.remove('translate-y-20', 'opacity-0'), 10);
+            
+            // 隱藏動畫
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+        // --- 綁定啟動程序 ---
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
