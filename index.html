@@ -118,14 +118,19 @@
 
         // --- Firebase 雲端資料庫初始化 ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
         
         let app, auth, db, docRef;
         try {
-            const firebaseConfig = JSON.parse(firebaseConfigStr);
-            app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
+            if (typeof __firebase_config !== 'undefined') {
+                const firebaseConfig = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
+                if (Object.keys(firebaseConfig).length > 0) {
+                    app = initializeApp(firebaseConfig);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
+                }
+            } else {
+                console.warn("找不到 Firebase 設定，將無法連線雲端");
+            }
         } catch (e) {
             console.error("Firebase initialization error:", e);
         }
@@ -238,15 +243,24 @@
 
         // --- 雲端資料即時同步 ---
         async function setupFirebase() {
-            if (!auth || !db) return;
+            if (!auth || !db) {
+                console.warn("無法啟動 Firebase 同步，請確認環境設定。");
+                return;
+            }
             try {
                 const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                let userCred;
                 if (token) {
-                    await signInWithCustomToken(auth, token);
+                    userCred = await signInWithCustomToken(auth, token);
                 } else {
-                    await signInAnonymously(auth);
+                    userCred = await signInAnonymously(auth);
                 }
                 
+                if (!userCred || !userCred.user) {
+                    console.error("無法取得使用者憑證");
+                    return;
+                }
+
                 // 確保登入後才存取共用資料表
                 docRef = doc(db, 'artifacts', appId, 'public', 'data', 'club_state', 'main');
                 
@@ -268,9 +282,13 @@
                         } else {
                             renderMemberTasks();
                         }
+                    } else {
+                        // 若雲端無資料，將當前畫面預設狀態存上去
+                        saveStateToCloud();
                     }
                 }, (error) => {
                     console.error("Firestore 即時同步錯誤:", error);
+                    showToast("無法同步最新狀態", "warning");
                 });
             } catch (error) {
                 console.error("Firebase 驗證失敗:", error);
@@ -279,7 +297,10 @@
 
         // 儲存資料到雲端
         async function saveStateToCloud() {
-            if (!docRef) return;
+            if (!docRef || !auth || !auth.currentUser) {
+                console.warn("尚未連接雲端，資料暫不保存");
+                return;
+            }
             try {
                 await setDoc(docRef, {
                     assignments: state.assignments,
